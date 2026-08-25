@@ -1,0 +1,15 @@
+# Secrets — never commit
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Generated output
+reports/
+agent.log
+
+# Local tooling / OS
+.claude/
+.DS_Store

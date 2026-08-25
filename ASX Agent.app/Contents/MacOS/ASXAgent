@@ -1,0 +1,39 @@
+#!/bin/bash
+# ASX Research Agent launcher — opens the UI, starting the server if needed.
+# Runs without a Terminal window. Errors are surfaced as macOS dialogs.
+
+PROJECT="/Users/harshbhatia/Documents/qFinance"
+PORT="5001"
+URL="http://localhost:$PORT"
+LABEL="com.qfinance.asxagent"
+PY="$PROJECT/.venv/bin/python"
+LOG="$PROJECT/agent.log"
+
+fail() {
+    /usr/bin/osascript -e "display alert \"ASX Agent\" message \"$1\" as critical" >/dev/null 2>&1
+    exit 1
+}
+
+server_up() { /usr/bin/curl -fsS -o /dev/null --max-time 2 "$URL/"; }
+
+if ! server_up; then
+    [ -x "$PY" ] || fail "No virtual environment found. Run start.command once to set it up."
+
+    # Preferred path: the login LaunchAgent. Fall back to a detached process.
+    if /bin/launchctl print "gui/$UID/$LABEL" >/dev/null 2>&1; then
+        /bin/launchctl kickstart "gui/$UID/$LABEL" >/dev/null 2>&1
+    else
+        cd "$PROJECT" || fail "Project folder not found at $PROJECT"
+        /usr/bin/nohup "$PY" server.py >>"$LOG" 2>&1 &
+        disown
+    fi
+
+    for _ in $(seq 1 60); do
+        server_up && break
+        sleep 0.25
+    done
+
+    server_up || fail "The server did not start. See $LOG for details."
+fi
+
+/usr/bin/open "$URL"
