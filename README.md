@@ -2,6 +2,14 @@
 
 An agentic AI system powered by **Claude** that researches, analyses, and reports on ASX equities using natural language.
 
+![The agent answering a research question](docs/images/agent-query.png)
+
+Ask a question in plain English and the agent decides which tools it needs, pulls live market data, and writes the analysis — including the caveats.
+
+![Live comparison table across ASX banks](docs/images/agent-comparison-table.png)
+
+Note `NAB — data missing`: when a field isn't available from the data source the agent says so and explains where to find it, rather than inventing a number.
+
 ## How It Works
 
 You ask questions in plain English. Claude reasons about what data it needs, calls the right tools, and synthesises findings into clear analysis or a PDF report.
