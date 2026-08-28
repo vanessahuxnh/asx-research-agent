@@ -238,6 +238,251 @@ def _pie_chart(labels, series, value_format):
     return "".join(parts)
 
 
+def create_plot(
+    title,
+    plot_type,
+    datasets,
+    x_axis_label="",
+    y_axis_label="",
+    value_format="number",
+    bins=10,
+):
+    """Create a native numeric line, scatter, histogram, or box plot as SVG."""
+    title = str(title or "Plot")[:160]
+    x_axis_label = str(x_axis_label or "")[:100]
+    y_axis_label = str(y_axis_label or "")[:100]
+    if plot_type not in {"line", "scatter", "histogram", "box"}:
+        raise ValueError("plot_type must be line, scatter, histogram, or box")
+    if value_format not in {"number", "currency", "percent"}:
+        raise ValueError("value_format must be number, currency, or percent")
+    if not isinstance(datasets, list) or not datasets or len(datasets) > len(PALETTE):
+        raise ValueError(f"datasets must contain between 1 and {len(PALETTE)} items")
+    if isinstance(bins, bool) or not isinstance(bins, int) or bins < 2 or bins > 30:
+        raise ValueError("bins must be an integer from 2 to 30")
+
+    clean_datasets = []
+    for index, dataset in enumerate(datasets):
+        if not isinstance(dataset, dict):
+            raise ValueError("each dataset must be an object")
+        values = dataset.get("values")
+        if not isinstance(values, list) or not values or len(values) > 500:
+            raise ValueError(f"datasets[{index}].values must contain between 1 and 500 numbers")
+        clean = {
+            "name": str(dataset.get("name") or f"Dataset {index + 1}")[:80],
+            "values": [_number(value, f"datasets[{index}].values") for value in values],
+        }
+        x_values = dataset.get("x_values")
+        if x_values is not None:
+            if not isinstance(x_values, list) or len(x_values) != len(values):
+                raise ValueError(f"datasets[{index}].x_values must match values length")
+            clean["x_values"] = [
+                _number(value, f"datasets[{index}].x_values") for value in x_values
+            ]
+        elif plot_type in {"line", "scatter"}:
+            clean["x_values"] = [float(point + 1) for point in range(len(values))]
+        clean_datasets.append(clean)
+
+    if plot_type in {"line", "scatter"}:
+        body = _numeric_xy_plot(
+            plot_type, clean_datasets, x_axis_label, y_axis_label, value_format
+        )
+    elif plot_type == "histogram":
+        body = _histogram_plot(
+            clean_datasets, bins, x_axis_label, y_axis_label, value_format
+        )
+    else:
+        body = _box_plot(clean_datasets, x_axis_label, value_format)
+
+    svg = _svg_shell(
+        title,
+        body,
+        900,
+        520,
+        f"Native {plot_type} plot with {len(clean_datasets)} numeric datasets",
+    )
+    path = _write_svg(svg, f"plot_{plot_type}")
+    return json.dumps({
+        "visualization_path": path,
+        "visualization_type": "plot",
+        "plot_type": plot_type,
+        "title": title,
+        "dataset_count": len(clean_datasets),
+        "observation_count": sum(len(dataset["values"]) for dataset in clean_datasets),
+    })
+
+
+def _plot_bounds(values, include_zero=False):
+    minimum, maximum = min(values), max(values)
+    if include_zero:
+        minimum, maximum = min(minimum, 0.0), max(maximum, 0.0)
+    if minimum == maximum:
+        padding = abs(minimum) * 0.1 or 1.0
+    else:
+        padding = (maximum - minimum) * 0.06
+    return minimum - padding, maximum + padding
+
+
+def _numeric_xy_plot(plot_type, datasets, x_axis_label, y_axis_label, value_format):
+    width, height = 900, 520
+    left, right, top, bottom = 92, 38, 88, 78
+    plot_w, plot_h = width - left - right, height - top - bottom
+    all_x = [value for dataset in datasets for value in dataset["x_values"]]
+    all_y = [value for dataset in datasets for value in dataset["values"]]
+    x_min, x_max = _plot_bounds(all_x)
+    y_min, y_max = _plot_bounds(all_y)
+    x_of = lambda value: left + (value - x_min) / (x_max - x_min) * plot_w
+    y_of = lambda value: top + (y_max - value) / (y_max - y_min) * plot_h
+    parts = []
+
+    for tick in range(6):
+        x_value = x_min + (x_max - x_min) * tick / 5
+        y_value = y_min + (y_max - y_min) * tick / 5
+        x, y = x_of(x_value), y_of(y_value)
+        parts.append(f'<line x1="{left}" y1="{y:.1f}" x2="{width-right}" y2="{y:.1f}" stroke="{GRID}" stroke-width="1"/>')
+        parts.append(f'<text x="{left-10}" y="{y+4:.1f}" text-anchor="end" fill="{MUTED}" font-family="system-ui,sans-serif" font-size="11">{escape(_fmt_value(y_value, value_format))}</text>')
+        parts.append(f'<text x="{x:.1f}" y="{height-bottom+22}" text-anchor="middle" fill="{MUTED}" font-family="system-ui,sans-serif" font-size="11">{escape(_fmt_value(x_value, "number"))}</text>')
+
+    for dataset_index, dataset in enumerate(datasets):
+        color = PALETTE[dataset_index]
+        points = [
+            (x_of(x_value), y_of(y_value), x_value, y_value)
+            for x_value, y_value in zip(dataset["x_values"], dataset["values"])
+        ]
+        if plot_type == "line" and len(points) > 1:
+            path = " ".join(f"{x:.1f},{y:.1f}" for x, y, _xv, _yv in points)
+            parts.append(f'<polyline points="{path}" fill="none" stroke="{color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>')
+        radius = 4 if plot_type == "line" else 5
+        for x, y, x_value, y_value in points:
+            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{radius}" fill="{color}"><title>{escape(dataset["name"])} — x: {_fmt_value(x_value, "number")}, y: {_fmt_value(y_value, value_format)}</title></circle>')
+
+    parts.extend(_plot_legend(datasets, width, right))
+    parts.extend(_axis_labels(x_axis_label, y_axis_label, left, top, plot_w, plot_h, height))
+    return "".join(parts)
+
+
+def _histogram_plot(datasets, bins, x_axis_label, y_axis_label, value_format):
+    width, height = 900, 520
+    left, right, top, bottom = 92, 38, 88, 78
+    plot_w, plot_h = width - left - right, height - top - bottom
+    all_values = [value for dataset in datasets for value in dataset["values"]]
+    value_min, value_max = min(all_values), max(all_values)
+    if value_min == value_max:
+        padding = abs(value_min) * 0.1 or 1.0
+        value_min -= padding
+        value_max += padding
+    bin_width = (value_max - value_min) / bins
+    counts = []
+    for dataset in datasets:
+        dataset_counts = [0] * bins
+        for value in dataset["values"]:
+            index = min(bins - 1, int((value - value_min) / bin_width))
+            dataset_counts[index] += 1
+        counts.append(dataset_counts)
+    count_max = max(max(dataset_counts) for dataset_counts in counts) or 1
+    y_max = max(1, math.ceil(count_max * 1.1))
+    x_of = lambda value: left + (value - value_min) / (value_max - value_min) * plot_w
+    y_of = lambda value: top + (y_max - value) / y_max * plot_h
+    parts = []
+
+    for tick in range(6):
+        count = y_max * tick / 5
+        y = y_of(count)
+        parts.append(f'<line x1="{left}" y1="{y:.1f}" x2="{width-right}" y2="{y:.1f}" stroke="{GRID}" stroke-width="1"/>')
+        parts.append(f'<text x="{left-10}" y="{y+4:.1f}" text-anchor="end" fill="{MUTED}" font-family="system-ui,sans-serif" font-size="11">{count:.0f}</text>')
+        x_value = value_min + (value_max - value_min) * tick / 5
+        x = x_of(x_value)
+        parts.append(f'<text x="{x:.1f}" y="{height-bottom+22}" text-anchor="middle" fill="{MUTED}" font-family="system-ui,sans-serif" font-size="11">{escape(_fmt_value(x_value, value_format))}</text>')
+
+    group_width = plot_w / bins
+    bar_width = group_width / len(datasets)
+    for dataset_index, (dataset, dataset_counts) in enumerate(zip(datasets, counts)):
+        color = PALETTE[dataset_index]
+        for bin_index, count in enumerate(dataset_counts):
+            x = left + bin_index * group_width + dataset_index * bar_width
+            y = y_of(count)
+            bar_height = top + plot_h - y
+            low = value_min + bin_index * bin_width
+            high = low + bin_width
+            parts.append(f'<rect x="{x+1:.1f}" y="{y:.1f}" width="{max(1, bar_width-2):.1f}" height="{max(0, bar_height):.1f}" fill="{color}" opacity="0.8"><title>{escape(dataset["name"])} — {_fmt_value(low, value_format)} to {_fmt_value(high, value_format)}: {count}</title></rect>')
+
+    parts.extend(_plot_legend(datasets, width, right))
+    parts.extend(_axis_labels(
+        x_axis_label, y_axis_label or "Frequency", left, top, plot_w, plot_h, height
+    ))
+    return "".join(parts)
+
+
+def _percentile(sorted_values, percentile):
+    if len(sorted_values) == 1:
+        return sorted_values[0]
+    position = (len(sorted_values) - 1) * percentile
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return sorted_values[lower]
+    fraction = position - lower
+    return sorted_values[lower] * (1 - fraction) + sorted_values[upper] * fraction
+
+
+def _box_plot(datasets, x_axis_label, value_format):
+    width, height = 900, 520
+    left, right, top, bottom = 150, 38, 88, 72
+    plot_w, plot_h = width - left - right, height - top - bottom
+    all_values = [value for dataset in datasets for value in dataset["values"]]
+    x_min, x_max = _plot_bounds(all_values)
+    x_of = lambda value: left + (value - x_min) / (x_max - x_min) * plot_w
+    row_height = plot_h / len(datasets)
+    parts = []
+
+    for tick in range(6):
+        value = x_min + (x_max - x_min) * tick / 5
+        x = x_of(value)
+        parts.append(f'<line x1="{x:.1f}" y1="{top}" x2="{x:.1f}" y2="{top+plot_h}" stroke="{GRID}" stroke-width="1"/>')
+        parts.append(f'<text x="{x:.1f}" y="{height-bottom+22}" text-anchor="middle" fill="{MUTED}" font-family="system-ui,sans-serif" font-size="11">{escape(_fmt_value(value, value_format))}</text>')
+
+    for index, dataset in enumerate(datasets):
+        values = sorted(dataset["values"])
+        minimum, maximum = values[0], values[-1]
+        q1, median, q3 = (
+            _percentile(values, 0.25),
+            _percentile(values, 0.5),
+            _percentile(values, 0.75),
+        )
+        y = top + row_height * (index + 0.5)
+        color = PALETTE[index]
+        parts.append(f'<text x="{left-14}" y="{y+4:.1f}" text-anchor="end" fill="{TEXT}" font-family="system-ui,sans-serif" font-size="12">{escape(dataset["name"][:20])}</text>')
+        parts.append(f'<line x1="{x_of(minimum):.1f}" y1="{y:.1f}" x2="{x_of(maximum):.1f}" y2="{y:.1f}" stroke="{color}" stroke-width="2"/>')
+        parts.append(f'<line x1="{x_of(minimum):.1f}" y1="{y-10:.1f}" x2="{x_of(minimum):.1f}" y2="{y+10:.1f}" stroke="{color}" stroke-width="2"/>')
+        parts.append(f'<line x1="{x_of(maximum):.1f}" y1="{y-10:.1f}" x2="{x_of(maximum):.1f}" y2="{y+10:.1f}" stroke="{color}" stroke-width="2"/>')
+        parts.append(f'<rect x="{x_of(q1):.1f}" y="{y-18:.1f}" width="{max(1, x_of(q3)-x_of(q1)):.1f}" height="36" rx="4" fill="{color}" opacity="0.28" stroke="{color}" stroke-width="2"><title>{escape(dataset["name"])} — min {_fmt_value(minimum, value_format)}, Q1 {_fmt_value(q1, value_format)}, median {_fmt_value(median, value_format)}, Q3 {_fmt_value(q3, value_format)}, max {_fmt_value(maximum, value_format)}</title></rect>')
+        parts.append(f'<line x1="{x_of(median):.1f}" y1="{y-18:.1f}" x2="{x_of(median):.1f}" y2="{y+18:.1f}" stroke="{color}" stroke-width="3"/>')
+
+    if x_axis_label:
+        parts.append(f'<text x="{left+plot_w/2:.1f}" y="{height-16}" text-anchor="middle" fill="{MUTED}" font-family="system-ui,sans-serif" font-size="12">{escape(x_axis_label)}</text>')
+    return "".join(parts)
+
+
+def _plot_legend(datasets, width, right):
+    parts = []
+    legend_x = width - right
+    for reverse_index, dataset in enumerate(reversed(datasets)):
+        actual_index = len(datasets) - reverse_index - 1
+        label_width = min(150, 28 + len(dataset["name"]) * 7)
+        legend_x -= label_width
+        parts.append(f'<circle cx="{legend_x+7}" cy="64" r="5" fill="{PALETTE[actual_index]}"/><text x="{legend_x+18}" y="68" fill="{TEXT}" font-family="system-ui,sans-serif" font-size="12">{escape(dataset["name"][:20])}</text>')
+    return parts
+
+
+def _axis_labels(x_axis_label, y_axis_label, left, top, plot_w, plot_h, height):
+    parts = []
+    if x_axis_label:
+        parts.append(f'<text x="{left+plot_w/2:.1f}" y="{height-18}" text-anchor="middle" fill="{MUTED}" font-family="system-ui,sans-serif" font-size="12">{escape(x_axis_label)}</text>')
+    if y_axis_label:
+        center = top + plot_h / 2
+        parts.append(f'<text x="20" y="{center:.1f}" text-anchor="middle" transform="rotate(-90 20 {center:.1f})" fill="{MUTED}" font-family="system-ui,sans-serif" font-size="12">{escape(y_axis_label)}</text>')
+    return parts
+
+
 def create_diagram(title, nodes, edges, direction="top_down"):
     """Create a simple flow/relationship diagram and save it as SVG."""
     title = str(title or "Diagram")[:160]

@@ -10,7 +10,7 @@ The agent has access to tools for:
   - Screening stocks by criteria
   - Comparing stocks side-by-side
   - Generating PDF research reports
-  - Creating charts and flow/relationship diagrams from computed data
+  - Creating native charts, numeric plots, and flow/relationship diagrams from computed data
 
 Usage:
     python agent.py                          # interactive mode

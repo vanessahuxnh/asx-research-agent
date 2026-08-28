@@ -16,6 +16,7 @@ from config import REPORT_OUTPUT_DIR
 from visualizations import (
     create_chart as _create_chart,
     create_diagram as _create_diagram,
+    create_plot as _create_plot,
 )
 
 # yfinance issues one HTTP request per ticker, so screening the universe
@@ -181,7 +182,7 @@ TOOL_SCHEMAS = [
         "name": "create_chart",
         "description": (
             "Create a chart from numeric data that has already been computed or fetched. "
-            "Use this whenever the user asks for a graph, chart, plot, trend, or visual comparison. "
+            "Use this for categorical charts, labelled trends, or visual comparisons. "
             "Supports bar, line, area, scatter, and pie charts and returns a saved SVG path."
         ),
         "input_schema": {
@@ -266,6 +267,60 @@ TOOL_SCHEMAS = [
                 "direction": {"type": "string", "enum": ["top_down", "left_right"]},
             },
             "required": ["title", "nodes", "edges"],
+        },
+    },
+    {
+        "name": "create_plot",
+        "description": (
+            "Create a native numeric plot directly from raw computed observations. "
+            "Use line or scatter for numeric x/y data, histogram for distributions, "
+            "and box for statistical summaries. Rendering is dependency-free SVG and "
+            "returns a saved artifact path. Use create_chart instead for categorical "
+            "bar/area/pie charts with display labels."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Clear, specific plot title"},
+                "plot_type": {
+                    "type": "string",
+                    "enum": ["line", "scatter", "histogram", "box"],
+                },
+                "datasets": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "values": {
+                                "type": "array",
+                                "items": {"type": "number"},
+                                "description": "Raw y-values or observations",
+                            },
+                            "x_values": {
+                                "type": "array",
+                                "items": {"type": "number"},
+                                "description": "Optional numeric x-values for line/scatter; defaults to 1..N",
+                            },
+                        },
+                        "required": ["name", "values"],
+                    },
+                },
+                "x_axis_label": {"type": "string"},
+                "y_axis_label": {"type": "string"},
+                "value_format": {
+                    "type": "string",
+                    "enum": ["number", "currency", "percent"],
+                    "description": "Use percent for decimal fractions such as 0.052 = 5.2%",
+                },
+                "bins": {
+                    "type": "integer",
+                    "minimum": 2,
+                    "maximum": 30,
+                    "description": "Histogram bin count; ignored for other plot types",
+                },
+            },
+            "required": ["title", "plot_type", "datasets"],
         },
     },
 ]
@@ -773,6 +828,7 @@ TOOL_DISPATCH = {
     "generate_report": lambda args: tool_generate_report(**args),
     "create_chart": lambda args: _create_chart(**args),
     "create_diagram": lambda args: _create_diagram(**args),
+    "create_plot": lambda args: _create_plot(**args),
 }
 
 

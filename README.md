@@ -9,6 +9,7 @@ An agentic AI system powered by **Claude** that researches, analyses, visualises
 V2 adds native visualisation tools to the research workflow:
 
 - Bar, line, area, scatter, and pie charts generated from computed market data
+- Native numeric line/scatter plots, histograms, and statistical box plots
 - Flowcharts, hierarchies, and relationship diagrams
 - Saved SVG artifacts with inline rendering in the web UI
 - Validated numeric inputs and safely escaped labels
@@ -60,6 +61,7 @@ User Query (natural language)
 │   ├── compare_stocks        │  ← side-by-side comparison
 │   ├── generate_report       │  ← PDF report generation
 │   ├── create_chart          │  ← SVG charts from computed data
+│   ├── create_plot           │  ← native numeric/statistical plots
 │   └── create_diagram        │  ← SVG flows and relationships
 └─────────┬───────────────────┘
           │ tool_result
@@ -156,6 +158,7 @@ python agent.py --demo "Find stocks with dividend yield above 5%"
 | "Generate a dividend-focused report" | Screens for yield, fetches data + news, builds PDF |
 | "Tell me about CSL" | Fetches fundamentals + news, gives a quick profile |
 | "Graph BHP, RIO and FMG dividend yields" | Fetches the yields, creates a bar chart, and explains the pattern |
+| "Plot the distribution of P/E ratios in these results" | Uses screened observations to create a native histogram or box plot |
 | "Diagram how the stock screening process works" | Creates and displays a flow diagram |
 
 ## Project Structure
@@ -164,7 +167,7 @@ python agent.py --demo "Find stocks with dividend yield above 5%"
 |------|---------|
 | `agent.py` | **Main entry point** — agentic loop with Claude |
 | `tools.py` | Tool schemas (what Claude sees) + implementations |
-| `visualizations.py` | Safe SVG chart and diagram generation |
+| `visualizations.py` | Safe, dependency-free SVG chart, plot, and diagram generation |
 | `report.py` | PDF report generation via reportlab |
 | `sample_data.py` | Demo data for offline testing |
 | `config.py` | Legacy config (used by report.py) |

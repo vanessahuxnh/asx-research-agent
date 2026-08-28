@@ -116,10 +116,10 @@ def stream_agent(user_message: str):
                 if tool_use.name == "generate_report" and isinstance(parsed, dict) and "html_report" in parsed:
                     yield _sse({"type": "html_report", "content": parsed["html_report"]})
 
-                # Charts and diagrams are generated as escaped, dependency-free
+                # Charts, plots, and diagrams are generated as escaped, dependency-free
                 # SVG. Send the content inline while keeping the model-facing
                 # tool result compact (path + metadata only).
-                if tool_use.name in {"create_chart", "create_diagram"} and isinstance(parsed, dict):
+                if tool_use.name in {"create_chart", "create_diagram", "create_plot"} and isinstance(parsed, dict):
                     svg = _read_visualization(parsed.get("visualization_path"))
                     if svg:
                         yield _sse({

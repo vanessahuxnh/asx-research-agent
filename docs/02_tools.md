@@ -23,6 +23,7 @@ This file defines **what tools Claude can use** (schemas) and **what happens whe
          |                          |  | name: compare_stocks  ||
          v                          |  | name: generate_report ||
          |                          |  | name: create_chart    ||
+         |                          |  | name: create_plot     ||
          |                          |  | name: create_diagram  ||
   +----------------+                |  +-----------------------+|
   | TOOL_DISPATCH  |                |                           |
@@ -108,6 +109,12 @@ Python functions that execute when Claude calls a tool. Connected via `TOOL_DISP
 ### `create_diagram`
 - **Purpose**: Visualise a process, hierarchy, decision flow, or set of relationships
 - **Input**: Nodes, directed edges, optional layers, shapes, groups, and layout direction
+- **Returns**: Metadata and the path to a saved SVG; the web UI displays it inline
+
+### `create_plot`
+- **Purpose**: Natively plot raw numeric observations without a charting service or extra runtime dependency
+- **Input**: Named datasets with numeric values, optional x-values, labels, formatting, and histogram bins
+- **Supported forms**: Numeric line and scatter plots, histograms, and statistical box plots
 - **Returns**: Metadata and the path to a saved SVG; the web UI displays it inline
 
 ---

@@ -78,6 +78,39 @@ class VisualizationTests(unittest.TestCase):
             self.assertIn("Fetch &lt;data&gt;", svg)
             self.assertNotIn("Fetch <data>", svg)
 
+    def test_each_native_plot_type_produces_valid_svg(self):
+        with tempfile.TemporaryDirectory() as output_dir, patch.object(
+            visualizations, "VISUALIZATION_OUTPUT_DIR", output_dir
+        ):
+            cases = {
+                "line": [{"name": "Trend", "x_values": [1, 2, 3], "values": [2, 4, 8]}],
+                "scatter": [{"name": "Risk/return", "x_values": [0.8, 1.1], "values": [0.05, 0.09]}],
+                "histogram": [{"name": "Returns", "values": [-0.02, -0.01, 0, 0.01, 0.04]}],
+                "box": [
+                    {"name": "Portfolio A", "values": [1, 2, 3, 4, 5]},
+                    {"name": "Portfolio B", "values": [2, 4, 6, 8, 10]},
+                ],
+            }
+            for plot_type, datasets in cases.items():
+                with self.subTest(plot_type=plot_type):
+                    result = json.loads(visualizations.create_plot(
+                        title=f"{plot_type} plot",
+                        plot_type=plot_type,
+                        datasets=datasets,
+                        bins=5,
+                    ))
+                    self.assertEqual(result["visualization_type"], "plot")
+                    ET.parse(result["visualization_path"])
+
+    def test_native_plot_validates_histogram_bins(self):
+        with self.assertRaisesRegex(ValueError, "bins"):
+            visualizations.create_plot(
+                title="Bad histogram",
+                plot_type="histogram",
+                datasets=[{"name": "Values", "values": [1, 2, 3]}],
+                bins=1,
+            )
+
     def test_diagram_rejects_unknown_edge_node(self):
         with self.assertRaisesRegex(ValueError, "unknown node"):
             visualizations.create_diagram(
@@ -89,13 +122,12 @@ class VisualizationTests(unittest.TestCase):
     def test_server_streams_generated_visualization_inline(self):
         tool_use = SimpleNamespace(
             type="tool_use",
-            name="create_chart",
+            name="create_plot",
             id="tool-1",
             input={
-                "title": "Inline chart",
-                "chart_type": "bar",
-                "labels": ["BHP", "RIO"],
-                "series": [{"name": "Value", "values": [1, 2]}],
+                "title": "Inline plot",
+                "plot_type": "histogram",
+                "datasets": [{"name": "Returns", "values": [-0.01, 0, 0.02]}],
             },
         )
         responses = iter([
