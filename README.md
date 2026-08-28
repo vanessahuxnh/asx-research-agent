@@ -10,6 +10,7 @@ V2 adds native visualisation tools to the research workflow:
 
 - Bar, line, area, scatter, and pie charts generated from computed market data
 - Native numeric line/scatter plots, histograms, and statistical box plots
+- Timestamped historical and recent intraday OHLCV data for price trends and return analysis
 - Flowcharts, hierarchies, and relationship diagrams
 - Saved SVG artifacts with inline rendering in the web UI
 - Validated numeric inputs and safely escaped labels
@@ -56,6 +57,7 @@ User Query (natural language)
 ┌─────────────────────────────┐
 │   Tools                     │
 │   ├── get_stock_data        │  ← yfinance fundamentals
+│   ├── get_price_history     │  ← timestamped OHLCV bars
 │   ├── get_stock_news        │  ← recent headlines
 │   ├── screen_stocks         │  ← filter by criteria
 │   ├── compare_stocks        │  ← side-by-side comparison
@@ -157,6 +159,7 @@ python agent.py --demo "Find stocks with dividend yield above 5%"
 | "Which stock has the best growth?" | Screens universe, ranks by revenue/earnings growth |
 | "Generate a dividend-focused report" | Screens for yield, fetches data + news, builds PDF |
 | "Tell me about CSL" | Fetches fundamentals + news, gives a quick profile |
+| "Graph BHP's price over the last year" | Fetches timestamped daily history and creates a line plot |
 | "Graph BHP, RIO and FMG dividend yields" | Fetches the yields, creates a bar chart, and explains the pattern |
 | "Plot the distribution of P/E ratios in these results" | Uses screened observations to create a native histogram or box plot |
 | "Diagram how the stock screening process works" | Creates and displays a flow diagram |
@@ -181,3 +184,9 @@ python agent.py --demo "Find stocks with dividend yield above 5%"
 - Python 3.10+
 - Anthropic API key (`ANTHROPIC_API_KEY` env var)
 - Internet access for yfinance (or use `--demo` mode)
+
+## Market Data Freshness
+
+Market prices and history come from Yahoo Finance through `yfinance`. Results include the retrieval time, latest bar timestamp, source market timestamp and its age when available, and exchange timezone. Fundamental results separately expose the most recent reported quarter and fiscal year end. The agent is instructed to quote the appropriate timestamps whenever recency matters.
+
+Yahoo/yfinance data may be delayed or incomplete and is not a licensed guaranteed real-time feed. [The official history documentation](https://ranaroussi.github.io/yfinance/reference/yfinance.functions.html) limits intraday history to the latest 60 days; use a daily or wider interval for longer periods. The project also states that Yahoo Finance data is intended for personal research and educational use in its [data-source notice](https://github.com/ranaroussi/yfinance/blob/main/README.md).

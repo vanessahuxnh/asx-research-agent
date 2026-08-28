@@ -4,9 +4,10 @@ Each tool is a function the LLM can call via tool_use, plus the schema it sees.
 """
 
 import json
+import math
 import os
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import parse_qs, urlparse
 
@@ -33,7 +34,8 @@ TOOL_SCHEMAS = [
             "Fetch fundamental data and price metrics for one or more ASX-listed stocks. "
             "Returns key financials: price, P/E, ROE, dividend yield, revenue growth, "
             "earnings growth, debt/equity, market cap, beta, margins, 52-week range, "
-            "and trailing returns. Use the .AX suffix for ASX tickers (e.g. BHP.AX)."
+            "trailing returns, and source/retrieval timestamps. Use the .AX suffix for "
+            "ASX tickers (e.g. BHP.AX). Yahoo/yfinance is not guaranteed real-time."
         ),
         "input_schema": {
             "type": "object",
@@ -62,6 +64,54 @@ TOOL_SCHEMAS = [
                     "items": {"type": "string"},
                     "description": "List of ASX ticker symbols with .AX suffix",
                 }
+            },
+            "required": ["tickers"],
+        },
+    },
+    {
+        "name": "get_price_history",
+        "description": (
+            "Fetch timestamped historical OHLCV market data from Yahoo Finance for up to "
+            "five ASX tickers or indices. Use this before price-over-time charts, return or "
+            "volatility analysis, drawdowns, or correlations. The latest available bar is "
+            "always retained and each result reports its data timestamp, retrieval timestamp, "
+            "exchange timezone, and whether rows were downsampled. Intraday data is limited by "
+            "Yahoo/yfinance availability and is not guaranteed to be real-time."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tickers": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "description": "ASX tickers such as BHP.AX, or indices such as ^AXJO",
+                },
+                "period": {
+                    "type": "string",
+                    "enum": ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"],
+                    "description": "History window; default 1y",
+                },
+                "interval": {
+                    "type": "string",
+                    "enum": ["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"],
+                    "description": "Bar interval; default 1d. Intraday intervals cannot extend beyond the latest 60 days.",
+                },
+                "auto_adjust": {
+                    "type": "boolean",
+                    "description": "Adjust OHLC for splits and dividends; default true",
+                },
+                "prepost": {
+                    "type": "boolean",
+                    "description": "Include pre/post-market bars when Yahoo supplies them; default false",
+                },
+                "max_points": {
+                    "type": "integer",
+                    "minimum": 2,
+                    "maximum": 500,
+                    "description": "Maximum returned bars per ticker; default 120. Data is evenly sampled with the latest bar retained.",
+                },
             },
             "required": ["tickers"],
         },
@@ -359,6 +409,8 @@ def _normalise_yield(val):
 def _fetch_single(ticker_str: str) -> Optional[dict]:
     """Fetch data for a single ticker via yfinance."""
     try:
+        fetched_at_time = datetime.now(timezone.utc)
+        fetched_at = fetched_at_time.isoformat()
         tk = yf.Ticker(ticker_str)
         info = tk.info or {}
         hist = tk.history(period="1y")
@@ -379,6 +431,18 @@ def _fetch_single(ticker_str: str) -> Optional[dict]:
         return {
             "ticker": ticker_str,
             "name": info.get("shortName", ticker_str),
+            "data_source": "Yahoo Finance via yfinance",
+            "fetched_at_utc": fetched_at,
+            "source_market_timestamp": _iso_timestamp(info.get("regularMarketTime")),
+            "source_age_seconds_at_fetch": _timestamp_age_seconds(
+                info.get("regularMarketTime"), fetched_at_time
+            ),
+            "fundamentals_most_recent_quarter": _iso_timestamp(info.get("mostRecentQuarter")),
+            "last_fiscal_year_end": _iso_timestamp(info.get("lastFiscalYearEnd")),
+            "earnings_timestamp": _iso_timestamp(info.get("earningsTimestamp")),
+            "exchange_timezone": info.get("exchangeTimezoneName") or info.get("timeZoneFullName"),
+            "market_state": info.get("marketState"),
+            "is_guaranteed_realtime": False,
             "sector": info.get("sector", "N/A"),
             "industry": info.get("industry", "N/A"),
             "market_cap": info.get("marketCap"),
@@ -404,7 +468,11 @@ def _fetch_single(ticker_str: str) -> Optional[dict]:
             "return_6m": round((price_now / price_6m) - 1, 4) if (price_now and price_6m) else None,
         }
     except Exception as e:
-        return {"ticker": ticker_str, "error": str(e)}
+        return {
+            "ticker": ticker_str,
+            "error": str(e),
+            "fetched_at_utc": datetime.now(timezone.utc).isoformat(),
+        }
 
 
 def _fmt_cap(val):
@@ -427,6 +495,179 @@ def _fetch_many(tickers: list[str]) -> list[dict]:
 def tool_get_stock_data(tickers: list[str]) -> str:
     """Execute get_stock_data tool."""
     return json.dumps(_fetch_many(tickers), indent=2, default=str)
+
+
+VALID_HISTORY_PERIODS = {"1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"}
+VALID_HISTORY_INTERVALS = {"1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"}
+
+
+def _normalise_market_ticker(ticker: str) -> str:
+    """Normalise plain ASX codes while preserving indices and explicit suffixes."""
+    ticker = str(ticker or "").strip().upper()
+    if not ticker:
+        raise ValueError("ticker symbols cannot be empty")
+    if ticker.startswith("^") or "." in ticker or "=" in ticker:
+        return ticker
+    return f"{ticker}.AX"
+
+
+def _iso_timestamp(value):
+    if value is None:
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return datetime.fromtimestamp(value, tz=timezone.utc).isoformat()
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
+def _timestamp_age_seconds(value, fetched_at):
+    if value is None:
+        return None
+    try:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            source_seconds = float(value)
+        elif hasattr(value, "timestamp"):
+            source_seconds = float(value.timestamp())
+        else:
+            source_seconds = datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+        return max(0, round(fetched_at.timestamp() - source_seconds))
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _json_number(value, integer=False):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return int(number) if integer else number
+
+
+def _sample_history(history, max_points):
+    """Evenly sample a frame while always retaining its first and latest rows."""
+    if len(history) <= max_points:
+        return history
+    positions = {
+        round(index * (len(history) - 1) / (max_points - 1))
+        for index in range(max_points)
+    }
+    return history.iloc[sorted(positions)]
+
+
+def _fetch_price_history_single(
+    ticker_str: str,
+    period: str,
+    interval: str,
+    auto_adjust: bool,
+    prepost: bool,
+    max_points: int,
+) -> dict:
+    """Fetch and serialise price history for one symbol."""
+    fetched_at_time = datetime.now(timezone.utc)
+    fetched_at = fetched_at_time.isoformat()
+    try:
+        ticker = yf.Ticker(ticker_str)
+        history = ticker.history(
+            period=period,
+            interval=interval,
+            auto_adjust=auto_adjust,
+            prepost=prepost,
+            actions=False,
+            repair=False,
+            raise_errors=True,
+        )
+        if history is None or history.empty:
+            return {
+                "ticker": ticker_str,
+                "error": "No price history was returned for this period and interval",
+                "fetched_at_utc": fetched_at,
+            }
+
+        metadata = ticker.get_history_metadata() or {}
+        available = len(history)
+        sampled = _sample_history(history, max_points)
+        points = []
+        for timestamp, row in sampled.iterrows():
+            points.append({
+                "timestamp": _iso_timestamp(timestamp),
+                "open": _json_number(row.get("Open")),
+                "high": _json_number(row.get("High")),
+                "low": _json_number(row.get("Low")),
+                "close": _json_number(row.get("Close")),
+                "volume": _json_number(row.get("Volume"), integer=True),
+            })
+
+        latest_timestamp = _iso_timestamp(history.index[-1])
+        return {
+            "ticker": ticker_str,
+            "period": period,
+            "interval": interval,
+            "auto_adjusted": auto_adjust,
+            "prepost_included": prepost,
+            "currency": metadata.get("currency"),
+            "exchange": metadata.get("exchangeName") or metadata.get("fullExchangeName"),
+            "exchange_timezone": metadata.get("exchangeTimezoneName"),
+            "instrument_type": metadata.get("instrumentType"),
+            "latest_bar_timestamp": latest_timestamp,
+            "source_market_timestamp": _iso_timestamp(metadata.get("regularMarketTime")),
+            "source_age_seconds_at_fetch": _timestamp_age_seconds(
+                metadata.get("regularMarketTime"), fetched_at_time
+            ),
+            "fetched_at_utc": fetched_at,
+            "points_available": available,
+            "points_returned": len(points),
+            "downsampled": available > len(points),
+            "points": points,
+        }
+    except Exception as error:
+        return {
+            "ticker": ticker_str,
+            "error": str(error),
+            "fetched_at_utc": fetched_at,
+        }
+
+
+def tool_get_price_history(
+    tickers: list[str],
+    period: str = "1y",
+    interval: str = "1d",
+    auto_adjust: bool = True,
+    prepost: bool = False,
+    max_points: int = 120,
+) -> str:
+    """Execute get_price_history with freshness metadata and bounded output."""
+    if not isinstance(tickers, list) or not 1 <= len(tickers) <= 5:
+        raise ValueError("tickers must contain between 1 and 5 symbols")
+    if period not in VALID_HISTORY_PERIODS:
+        raise ValueError(f"unsupported period: {period}")
+    if interval not in VALID_HISTORY_INTERVALS:
+        raise ValueError(f"unsupported interval: {interval}")
+    if isinstance(max_points, bool) or not isinstance(max_points, int) or not 2 <= max_points <= 500:
+        raise ValueError("max_points must be an integer from 2 to 500")
+    if not isinstance(auto_adjust, bool) or not isinstance(prepost, bool):
+        raise ValueError("auto_adjust and prepost must be boolean values")
+
+    normalised = [_normalise_market_ticker(ticker) for ticker in tickers]
+    workers = min(MAX_FETCH_WORKERS, len(normalised))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(
+            lambda ticker: _fetch_price_history_single(
+                ticker, period, interval, auto_adjust, prepost, max_points
+            ),
+            normalised,
+        ))
+    return json.dumps({
+        "source": "Yahoo Finance via yfinance",
+        "is_guaranteed_realtime": False,
+        "freshness_note": (
+            "Use latest_bar_timestamp and source_market_timestamp as the data 'as of' values. "
+            "Yahoo/yfinance availability and exchange delays apply; this is not a licensed real-time feed."
+        ),
+        "results": results,
+    }, indent=2)
 
 
 def _fetch_news_single(ticker_str: str, limit: int = 5) -> list[dict]:
@@ -580,6 +821,10 @@ def tool_compare_stocks(tickers: list[str]) -> str:
             "debt_to_equity": data["debt_to_equity"],
             "beta": data["beta"],
             "return_1y": _pct(data.get("return_1y")),
+            "source_market_timestamp": data.get("source_market_timestamp"),
+            "fundamentals_most_recent_quarter": data.get("fundamentals_most_recent_quarter"),
+            "fetched_at_utc": data.get("fetched_at_utc"),
+            "is_guaranteed_realtime": False,
         })
     return json.dumps(rows, indent=2, default=str)
 
@@ -822,6 +1067,7 @@ def tool_generate_report(tickers: list[str], title: str = None, strategy: str = 
 TOOL_DISPATCH = {
     "get_stock_data": lambda args: tool_get_stock_data(**args),
     "get_stock_news": lambda args: tool_get_stock_news(**args),
+    "get_price_history": lambda args: tool_get_price_history(**args),
     "web_search_news": lambda args: tool_web_search_news(**args),
     "screen_stocks": lambda args: tool_screen_stocks(**args),
     "compare_stocks": lambda args: tool_compare_stocks(**args),

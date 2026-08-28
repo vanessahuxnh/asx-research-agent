@@ -6,6 +6,7 @@ to research, analyse, and report on ASX equities.
 
 The agent has access to tools for:
   - Fetching stock fundamentals & prices
+  - Fetching timestamped historical and recent intraday OHLCV bars
   - Getting recent news headlines
   - Screening stocks by criteria
   - Comparing stocks side-by-side
@@ -134,6 +135,13 @@ def _patch_demo_tools():
         result = {t: sample_news.get(t, []) for t in tickers}
         return json.dumps(result, indent=2, default=str)
 
+    def demo_get_price_history(tickers, **_kwargs):
+        return json.dumps({
+            "error": "Historical price data is unavailable in offline demo mode. Use live mode for current Yahoo Finance history.",
+            "tickers": tickers,
+            "results": [],
+        })
+
     def demo_screen_stocks(min_market_cap_b=0, max_pe_ratio=None, min_dividend_yield=0,
                            min_roe=0, sectors=None, exclude_sectors=None):
         df = sample_df.copy()
@@ -207,6 +215,7 @@ def _patch_demo_tools():
         **tools.TOOL_DISPATCH,
         "get_stock_data": lambda args: demo_get_stock_data(**args),
         "get_stock_news": lambda args: demo_get_stock_news(**args),
+        "get_price_history": lambda args: demo_get_price_history(**args),
         "screen_stocks": lambda args: demo_screen_stocks(**args),
         "compare_stocks": lambda args: demo_compare_stocks(**args),
         "generate_report": lambda args: demo_generate_report(**args),

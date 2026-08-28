@@ -19,7 +19,9 @@ This file defines **what tools Claude can use** (schemas) and **what happens whe
   +------+------+                   |  | }                     ||
          |                          |  +-----------------------+|
          | looks up in              |  | name: get_stock_news  ||
-         | TOOL_DISPATCH            |  | name: screen_stocks   ||
+         | TOOL_DISPATCH            |  | name: get_price_      ||
+         |                          |  | history               ||
+         |                          |  | name: screen_stocks   ||
          |                          |  | name: compare_stocks  ||
          v                          |  | name: generate_report ||
          |                          |  | name: create_chart    ||
@@ -81,6 +83,12 @@ Python functions that execute when Claude calls a tool. Connected via `TOOL_DISP
 - **Input**: `tickers` — list of ASX tickers
 - **How it works**: Uses `yfinance`'s `.news` property, parses title/publisher/date from each item
 - **Returns**: JSON object mapping ticker -> array of up to 5 headlines
+
+### `get_price_history`
+- **Purpose**: Fetch historical or recent intraday price bars for time-series analysis and plotting
+- **Input**: Up to five tickers, period, interval, adjustment/pre-market options, and a bounded point count
+- **How it works**: Retrieves OHLCV bars through `yfinance`, evenly downsamples large results while retaining the latest bar, and attaches source/retrieval timestamps and exchange metadata
+- **Returns**: Timestamped OHLCV points plus explicit freshness and non-real-time notices
 
 ### `screen_stocks` (line 242)
 - **Purpose**: Filter the ASX universe by criteria
