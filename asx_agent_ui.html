@@ -239,6 +239,14 @@ body{
 .inline-report table tbody tr:hover{background:var(--bg-hover)}
 .inline-report table td,.inline-report table th{white-space:nowrap}
 .inline-report strong{color:var(--text-primary)}
+.inline-visualization{
+  margin:16px 0;padding:12px;
+  background:var(--bg-card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  overflow-x:auto;
+}
+.inline-visualization svg{display:block;min-width:620px;margin:0 auto}
 </style>
 </head>
 <body>
@@ -303,6 +311,7 @@ const suggestions = [
   "Find mining stocks with high dividends",
   "Which bank has the best ROE?",
   "Compare BHP, RIO and FMG",
+  "Graph BHP, RIO and FMG dividend yields",
   "Top growth stocks on the ASX",
   "Screen for yield above 4%",
 ];
@@ -518,6 +527,15 @@ async function send(override){
         // which escapes every value it interpolates.
         reportDiv.innerHTML = evt.content;
         msgDiv.appendChild(reportDiv);
+        scrollDown();
+      }
+      else if(evt.type === 'visualization'){
+        const visualDiv = document.createElement('div');
+        visualDiv.className = 'inline-visualization';
+        // Trusted: visualization SVG is generated server-side and every
+        // model-provided label is escaped before it is interpolated.
+        visualDiv.innerHTML = evt.content;
+        msgDiv.appendChild(visualDiv);
         scrollDown();
       }
       else if(evt.type === 'answer'){

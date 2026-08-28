@@ -10,21 +10,23 @@ This file defines **what tools Claude can use** (schemas) and **what happens whe
   Claude says:                      tools.py
   "call get_stock_data              +---------------------------+
    with tickers=[BHP.AX]"          |                           |
-         |                          |  TOOL_SCHEMAS (lines 15-143)
+         |                          |  TOOL_SCHEMAS
          |                          |  +-----------------------+|
          v                          |  | name: get_stock_data  ||
   +-------------+                   |  | description: "..."    ||
   | execute_tool|                   |  | input_schema: {       ||
-  | (line 471)  |                   |  |   tickers: [string]   ||
+  |             |                   |  |   tickers: [string]   ||
   +------+------+                   |  | }                     ||
          |                          |  +-----------------------+|
          | looks up in              |  | name: get_stock_news  ||
          | TOOL_DISPATCH            |  | name: screen_stocks   ||
          |                          |  | name: compare_stocks  ||
          v                          |  | name: generate_report ||
+         |                          |  | name: create_chart    ||
+         |                          |  | name: create_diagram  ||
   +----------------+                |  +-----------------------+|
   | TOOL_DISPATCH  |                |                           |
-  | (line 462)     |                |  TOOL_DISPATCH (line 462) |
+  |                |                |  TOOL_DISPATCH            |
   | {              |                |  Maps name -> function    |
   |  "get_stock_   |                |                           |
   |   data": fn,   |                +---------------------------+
@@ -65,7 +67,7 @@ Python functions that execute when Claude calls a tool. Connected via `TOOL_DISP
 
 ---
 
-## The 5 Tools
+## The Tools
 
 ### `get_stock_data` (line 211)
 - **Purpose**: Fetch detailed fundamentals for specific tickers
@@ -96,6 +98,17 @@ Python functions that execute when Claude calls a tool. Connected via `TOOL_DISP
 - **Input**: `tickers`, optional `title` and `strategy` (growth/value/dividend/balanced)
 - **How it works**: Fetches all data + news, builds a PDF using `reportlab` with title page, rankings table, individual stock profiles, and disclaimer
 - **Returns**: JSON with `report_path` and `stocks_included` count
+
+### `create_chart`
+- **Purpose**: Turn data already fetched or computed by the agent into a visual chart
+- **Input**: Title, chart type, labels, numeric series, optional axis labels and number format
+- **Supported forms**: Bar, line, area, scatter, and pie
+- **Returns**: Metadata and the path to a saved SVG; the web UI displays it inline
+
+### `create_diagram`
+- **Purpose**: Visualise a process, hierarchy, decision flow, or set of relationships
+- **Input**: Nodes, directed edges, optional layers, shapes, groups, and layout direction
+- **Returns**: Metadata and the path to a saved SVG; the web UI displays it inline
 
 ---
 

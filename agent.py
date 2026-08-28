@@ -10,6 +10,7 @@ The agent has access to tools for:
   - Screening stocks by criteria
   - Comparing stocks side-by-side
   - Generating PDF research reports
+  - Creating charts and flow/relationship diagrams from computed data
 
 Usage:
     python agent.py                          # interactive mode
@@ -230,6 +231,7 @@ def interactive(demo=False):
     line('• "Find undervalued mining stocks with high dividends"')
     line('• "Compare BHP, RIO, and FMG"')
     line('• "Generate a report on the top ASX tech stocks"')
+    line('• "Graph the dividend yields of BHP, RIO and FMG"')
     line('• "Which bank has the best ROE?"')
     line()
     line(f"Mode: {'DEMO (sample data)' if demo else 'LIVE (yfinance)'}")

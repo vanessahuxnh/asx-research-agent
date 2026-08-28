@@ -13,6 +13,10 @@ from urllib.parse import parse_qs, urlparse
 import yfinance as yf
 
 from config import REPORT_OUTPUT_DIR
+from visualizations import (
+    create_chart as _create_chart,
+    create_diagram as _create_diagram,
+)
 
 # yfinance issues one HTTP request per ticker, so screening the universe
 # serially takes ~a minute. Fetch in parallel instead.
@@ -171,6 +175,97 @@ TOOL_SCHEMAS = [
                 },
             },
             "required": ["tickers"],
+        },
+    },
+    {
+        "name": "create_chart",
+        "description": (
+            "Create a chart from numeric data that has already been computed or fetched. "
+            "Use this whenever the user asks for a graph, chart, plot, trend, or visual comparison. "
+            "Supports bar, line, area, scatter, and pie charts and returns a saved SVG path."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Clear, specific chart title"},
+                "chart_type": {
+                    "type": "string",
+                    "enum": ["bar", "line", "area", "scatter", "pie"],
+                    "description": "Chart form best suited to the data",
+                },
+                "labels": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Category or point labels, in display order",
+                },
+                "series": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "values": {"type": "array", "items": {"type": "number"}},
+                            "x_values": {
+                                "type": "array",
+                                "items": {"type": "number"},
+                                "description": "Required only for scatter charts",
+                            },
+                        },
+                        "required": ["name", "values"],
+                    },
+                    "description": "One or more numeric series; pie charts accept exactly one",
+                },
+                "x_axis_label": {"type": "string"},
+                "y_axis_label": {"type": "string"},
+                "value_format": {
+                    "type": "string",
+                    "enum": ["number", "currency", "percent"],
+                    "description": "Use percent for decimal fractions such as 0.052 = 5.2%",
+                },
+            },
+            "required": ["title", "chart_type", "labels", "series"],
+        },
+    },
+    {
+        "name": "create_diagram",
+        "description": (
+            "Create a flowchart or relationship diagram from named nodes and directed edges. "
+            "Use this when the user asks for a diagram, process flow, decision flow, hierarchy, "
+            "or visual map of concepts. Returns a saved SVG path."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Clear diagram title"},
+                "nodes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string", "description": "Unique stable identifier"},
+                            "label": {"type": "string", "description": "Text displayed in the node"},
+                            "shape": {"type": "string", "enum": ["box", "rounded", "circle", "diamond"]},
+                            "group": {"type": "string", "description": "Optional category used for node colour"},
+                            "layer": {"type": "integer", "minimum": 0, "maximum": 20},
+                        },
+                        "required": ["id", "label"],
+                    },
+                },
+                "edges": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "from": {"type": "string"},
+                            "to": {"type": "string"},
+                            "label": {"type": "string"},
+                        },
+                        "required": ["from", "to"],
+                    },
+                },
+                "direction": {"type": "string", "enum": ["top_down", "left_right"]},
+            },
+            "required": ["title", "nodes", "edges"],
         },
     },
 ]
@@ -676,6 +771,8 @@ TOOL_DISPATCH = {
     "screen_stocks": lambda args: tool_screen_stocks(**args),
     "compare_stocks": lambda args: tool_compare_stocks(**args),
     "generate_report": lambda args: tool_generate_report(**args),
+    "create_chart": lambda args: _create_chart(**args),
+    "create_diagram": lambda args: _create_diagram(**args),
 }
 
 

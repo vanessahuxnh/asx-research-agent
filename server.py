@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from flask import Flask, Response, request
 from flask_cors import CORS
 
-from config import MAX_TOKENS, MAX_TURNS, MODEL, SYSTEM_PROMPT
+from config import MAX_TOKENS, MAX_TURNS, MODEL, SYSTEM_PROMPT, VISUALIZATION_OUTPUT_DIR
 from tools import TOOL_SCHEMAS, execute_tool
 
 load_dotenv()
@@ -26,6 +26,21 @@ CORS(app)
 def _sse(payload: dict) -> str:
     """Encode one Server-Sent Event."""
     return f"data: {json.dumps(payload)}\n\n"
+
+
+def _read_visualization(path: str):
+    """Read only SVGs created inside the configured visualization directory."""
+    if not isinstance(path, str) or not path.lower().endswith(".svg"):
+        return None
+    resolved = os.path.realpath(path)
+    allowed = os.path.realpath(VISUALIZATION_OUTPUT_DIR)
+    try:
+        if os.path.commonpath([resolved, allowed]) != allowed:
+            return None
+        with open(resolved, "r", encoding="utf-8") as source:
+            return source.read()
+    except (OSError, ValueError):
+        return None
 
 
 def stream_agent(user_message: str):
@@ -100,6 +115,18 @@ def stream_agent(user_message: str):
                 # If this was a report, send the HTML for inline rendering
                 if tool_use.name == "generate_report" and isinstance(parsed, dict) and "html_report" in parsed:
                     yield _sse({"type": "html_report", "content": parsed["html_report"]})
+
+                # Charts and diagrams are generated as escaped, dependency-free
+                # SVG. Send the content inline while keeping the model-facing
+                # tool result compact (path + metadata only).
+                if tool_use.name in {"create_chart", "create_diagram"} and isinstance(parsed, dict):
+                    svg = _read_visualization(parsed.get("visualization_path"))
+                    if svg:
+                        yield _sse({
+                            "type": "visualization",
+                            "content": svg,
+                            "title": parsed.get("title", "Visualization"),
+                        })
 
                 tool_results.append({
                     "type": "tool_result",

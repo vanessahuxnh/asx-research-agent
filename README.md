@@ -45,7 +45,9 @@ User Query (natural language)
 │   ├── get_stock_news        │  ← recent headlines
 │   ├── screen_stocks         │  ← filter by criteria
 │   ├── compare_stocks        │  ← side-by-side comparison
-│   └── generate_report       │  ← PDF report generation
+│   ├── generate_report       │  ← PDF report generation
+│   ├── create_chart          │  ← SVG charts from computed data
+│   └── create_diagram        │  ← SVG flows and relationships
 └─────────┬───────────────────┘
           │ tool_result
           ▼
@@ -140,6 +142,8 @@ python agent.py --demo "Find stocks with dividend yield above 5%"
 | "Which stock has the best growth?" | Screens universe, ranks by revenue/earnings growth |
 | "Generate a dividend-focused report" | Screens for yield, fetches data + news, builds PDF |
 | "Tell me about CSL" | Fetches fundamentals + news, gives a quick profile |
+| "Graph BHP, RIO and FMG dividend yields" | Fetches the yields, creates a bar chart, and explains the pattern |
+| "Diagram how the stock screening process works" | Creates and displays a flow diagram |
 
 ## Project Structure
 
@@ -147,6 +151,7 @@ python agent.py --demo "Find stocks with dividend yield above 5%"
 |------|---------|
 | `agent.py` | **Main entry point** — agentic loop with Claude |
 | `tools.py` | Tool schemas (what Claude sees) + implementations |
+| `visualizations.py` | Safe SVG chart and diagram generation |
 | `report.py` | PDF report generation via reportlab |
 | `sample_data.py` | Demo data for offline testing |
 | `config.py` | Legacy config (used by report.py) |
