@@ -248,6 +248,13 @@ body{
   border-radius:var(--radius);
   overflow-x:auto;
 }
+.visualization-toolbar{display:flex;justify-content:flex-end;margin:0 0 8px}
+.visualization-download{
+  padding:6px 10px;border:1px solid var(--border);border-radius:6px;
+  background:var(--bg-elevated);color:var(--text-primary);font:inherit;
+  font-size:12px;cursor:pointer;
+}
+.visualization-download:hover{border-color:var(--accent);color:var(--accent)}
 .inline-visualization svg{display:block;min-width:620px;margin:0 auto}
 </style>
 </head>
@@ -394,6 +401,27 @@ function mdToHtml(text){
   return '<p>' + body + '</p>';  // wrap, so the </p><p> splits above balance
 }
 
+function visualizationFilename(title){
+  const cleaned = String(title || 'chart').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return (cleaned || 'chart') + '.svg';
+}
+
+function downloadVisualization(svgContent, title){
+  const blob = new Blob([svgContent], {type: 'image/svg+xml;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = visualizationFilename(title);
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 const chat = document.getElementById('chat');
 
 function scrollDown(){
@@ -537,9 +565,21 @@ async function send(override){
       else if(evt.type === 'visualization'){
         const visualDiv = document.createElement('div');
         visualDiv.className = 'inline-visualization';
+        const toolbar = document.createElement('div');
+        toolbar.className = 'visualization-toolbar';
+        const downloadButton = document.createElement('button');
+        downloadButton.type = 'button';
+        downloadButton.className = 'visualization-download';
+        downloadButton.textContent = 'Download SVG';
+        downloadButton.title = 'Save this visualization as an SVG file';
+        downloadButton.addEventListener('click', () =>
+          downloadVisualization(evt.content, evt.title));
+        toolbar.appendChild(downloadButton);
+        const visualContent = document.createElement('div');
         // Trusted: visualization SVG is generated server-side and every
         // model-provided label is escaped before it is interpolated.
-        visualDiv.innerHTML = evt.content;
+        visualContent.innerHTML = evt.content;
+        visualDiv.append(toolbar, visualContent);
         msgDiv.appendChild(visualDiv);
         scrollDown();
       }

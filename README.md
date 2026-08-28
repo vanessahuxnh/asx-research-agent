@@ -13,7 +13,7 @@ V2 adds native visualisation tools to the research workflow:
 - Timestamped historical and recent intraday OHLCV data for price trends and return analysis
 - Public-web and recent-news search with recency/domain filters, preserved result URLs, and safe page-text extraction
 - Flowcharts, hierarchies, and relationship diagrams
-- Saved SVG artifacts with inline rendering in the web UI
+- Saved SVG artifacts with inline rendering and one-click local download in the web UI
 - Automatic clickable source lists on every answer, plus inline citation guidance
 - Validated numeric inputs and safely escaped labels
 
@@ -167,6 +167,7 @@ python agent.py --demo "Find stocks with dividend yield above 5%"
 | "Graph BHP, RIO and FMG dividend yields" | Fetches the yields, creates a bar chart, and explains the pattern |
 | "Plot the distribution of P/E ratios in these results" | Uses screened observations to create a native histogram or box plot |
 | "Diagram how the stock screening process works" | Creates and displays a flow diagram |
+| "Download the chart" | Saves the generated visualization as a portable SVG file, ready for Downloads or a synced cloud folder |
 
 ## Project Structure
 

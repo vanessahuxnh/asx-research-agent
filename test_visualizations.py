@@ -150,6 +150,13 @@ class VisualizationTests(unittest.TestCase):
         self.assertIn("Done\\n\\n## Sources", events)
         self.assertIn("No external sources were used", events)
 
+    def test_web_ui_offers_svg_download_for_visualizations(self):
+        with open("asx_agent_ui.html", encoding="utf-8") as source:
+            ui = source.read()
+        self.assertIn("Download SVG", ui)
+        self.assertIn("image/svg+xml;charset=utf-8", ui)
+        self.assertIn("URL.createObjectURL", ui)
+
 
 if __name__ == "__main__":
     unittest.main()
