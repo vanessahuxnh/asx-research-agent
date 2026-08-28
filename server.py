@@ -13,6 +13,7 @@ from flask import Flask, Response, request
 from flask_cors import CORS
 
 from config import MAX_TOKENS, MAX_TURNS, MODEL, SYSTEM_PROMPT, VISUALIZATION_OUTPUT_DIR
+from source_utils import append_sources, collect_sources
 from tools import TOOL_SCHEMAS, execute_tool
 
 load_dotenv()
@@ -53,6 +54,7 @@ def stream_agent(user_message: str):
         return
 
     messages = [{"role": "user", "content": user_message}]
+    collected_sources = []
 
     try:
         for _turn in range(MAX_TURNS):
@@ -86,7 +88,10 @@ def stream_agent(user_message: str):
             if not tool_uses or response.stop_reason == "max_tokens":
                 if response.stop_reason == "max_tokens":
                     answer += "\n\n_(Response hit the token limit and may be incomplete.)_"
-                yield _sse({"type": "answer", "content": answer})
+                yield _sse({
+                    "type": "answer",
+                    "content": append_sources(answer, collected_sources),
+                })
                 yield _sse({"type": "done"})
                 return
 
@@ -109,6 +114,8 @@ def stream_agent(user_message: str):
                     parsed = json.loads(result)
                 except (json.JSONDecodeError, TypeError):
                     parsed = result
+
+                collected_sources.extend(collect_sources(parsed))
 
                 yield _sse({"type": "tool_result", "name": tool_use.name, "data": parsed})
 

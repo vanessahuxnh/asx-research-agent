@@ -4,12 +4,14 @@ Each tool is a function the LLM can call via tool_use, plus the schema it sees.
 """
 
 import json
+import ipaddress
 import math
 import os
+import socket
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Optional
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, quote_plus, urljoin, urlparse
 
 import yfinance as yf
 
@@ -53,7 +55,7 @@ TOOL_SCHEMAS = [
         "name": "get_stock_news",
         "description": (
             "Fetch recent news headlines for one or more ASX stocks. "
-            "Returns up to 5 headlines per stock with title, publisher, and date. "
+            "Returns up to 5 headlines per stock with title, publisher, date, and article URL. "
             "Useful for gauging market sentiment and recent developments."
         ),
         "input_schema": {
@@ -140,6 +142,61 @@ TOOL_SCHEMAS = [
         },
     },
     {
+        "name": "web_search",
+        "description": (
+            "Search the public web for company pages, ASX announcements, reports, analysis, "
+            "or other current information. Returns clickable result URLs and snippets. Use "
+            "domain filters for authoritative sources such as asx.com.au, company investor "
+            "relations sites, reuters.com, or public sites.google.com pages."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Specific web search query"},
+                "num_results": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "description": "Number of results; default 5",
+                },
+                "recency": {
+                    "type": "string",
+                    "enum": ["day", "week", "month", "year", "any"],
+                    "description": "Optional recency filter; default any",
+                },
+                "domains": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 5,
+                    "description": "Optional domains to search, e.g. ['asx.com.au', 'bhp.com']",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "fetch_web_page",
+        "description": (
+            "Read a known public HTTP(S) page and extract its visible text, title, publication "
+            "date when available, final URL, and retrieval timestamp. Use after web_search or "
+            "when the user supplies a URL. Supports accessible company, ASX, news, and public "
+            "Google Sites pages; JavaScript-only or paywalled content may be unavailable."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "Public HTTP(S) page URL"},
+                "max_chars": {
+                    "type": "integer",
+                    "minimum": 1000,
+                    "maximum": 20000,
+                    "description": "Maximum extracted text characters; default 10000",
+                },
+            },
+            "required": ["url"],
+        },
+    },
+    {
         "name": "screen_stocks",
         "description": (
             "Screen the ASX for stocks matching specific criteria. "
@@ -205,7 +262,7 @@ TOOL_SCHEMAS = [
             "Generate a PDF research report for a list of stocks. "
             "The report includes an executive summary, rankings table, "
             "individual stock profiles with key metrics, and recent news. "
-            "Returns the file path of the generated PDF."
+            "Returns the file path of the generated PDF and its source URLs."
         ),
         "input_schema": {
             "type": "object",
@@ -390,6 +447,10 @@ ASX_UNIVERSE = [
 
 # ── Tool Implementations ────────────────────────────────────────────────────
 
+def _yahoo_quote_url(ticker, history=False):
+    suffix = "/history" if history else ""
+    return f"https://finance.yahoo.com/quote/{quote(str(ticker), safe='')}{suffix}/"
+
 def _normalise_yield(val):
     """
     yfinance returns dividendYield as a percentage (5.2 for 5.2%) in current
@@ -432,6 +493,8 @@ def _fetch_single(ticker_str: str) -> Optional[dict]:
             "ticker": ticker_str,
             "name": info.get("shortName", ticker_str),
             "data_source": "Yahoo Finance via yfinance",
+            "source_title": f"{ticker_str} market data — Yahoo Finance",
+            "source_url": _yahoo_quote_url(ticker_str),
             "fetched_at_utc": fetched_at,
             "source_market_timestamp": _iso_timestamp(info.get("regularMarketTime")),
             "source_age_seconds_at_fetch": _timestamp_age_seconds(
@@ -603,6 +666,8 @@ def _fetch_price_history_single(
         latest_timestamp = _iso_timestamp(history.index[-1])
         return {
             "ticker": ticker_str,
+            "source_title": f"{ticker_str} historical prices — Yahoo Finance",
+            "source_url": _yahoo_quote_url(ticker_str, history=True),
             "period": period,
             "interval": interval,
             "auto_adjusted": auto_adjust,
@@ -661,6 +726,8 @@ def tool_get_price_history(
         ))
     return json.dumps({
         "source": "Yahoo Finance via yfinance",
+        "source_title": "Yahoo Finance market data",
+        "source_homepage": "https://finance.yahoo.com/markets/stocks/",
         "is_guaranteed_realtime": False,
         "freshness_note": (
             "Use latest_bar_timestamp and source_market_timestamp as the data 'as of' values. "
@@ -681,10 +748,13 @@ def _fetch_news_single(ticker_str: str, limit: int = 5) -> list[dict]:
     for item in items[:limit]:
         content = item.get("content") or {}
         provider = content.get("provider") or {}
+        canonical = content.get("canonicalUrl") or content.get("clickThroughUrl") or {}
+        canonical_url = canonical.get("url", "") if isinstance(canonical, dict) else str(canonical)
         parsed.append({
             "title": content.get("title") or item.get("title") or "N/A",
             "publisher": provider.get("displayName", "N/A"),
             "date": content.get("pubDate", ""),
+            "url": canonical_url or item.get("link") or "",
         })
     return parsed
 
@@ -714,8 +784,13 @@ def _unwrap_ddg_url(href: str) -> str:
     return href
 
 
-def tool_web_search_news(query: str, num_results: int = 5) -> str:
-    """Search DuckDuckGo for recent news headlines."""
+def tool_web_search(
+    query: str,
+    num_results: int = 5,
+    recency: str = "any",
+    domains: list[str] = None,
+) -> str:
+    """Search public web pages through DuckDuckGo's HTML endpoint."""
     try:
         import requests
         from bs4 import BeautifulSoup
@@ -726,31 +801,199 @@ def tool_web_search_news(query: str, num_results: int = 5) -> str:
             "results": [],
         })
 
-    num_results = min(num_results or 5, 10)
+    if not isinstance(query, str) or not query.strip():
+        return json.dumps({"error": "query must be a non-empty string", "results": []})
+    if isinstance(num_results, bool) or not isinstance(num_results, int) or not 1 <= num_results <= 10:
+        return json.dumps({"error": "num_results must be an integer from 1 to 10", "results": []})
+    recency_map = {"day": "d", "week": "w", "month": "m", "year": "y", "any": None}
+    if recency not in recency_map:
+        return json.dumps({"error": "recency must be day, week, month, year, or any", "results": []})
+    if domains is not None and (not isinstance(domains, list) or len(domains) > 5):
+        return json.dumps({"error": "domains must be a list of up to 5 domains", "results": []})
+
+    clean_domains = []
+    for domain in domains or []:
+        domain = str(domain).strip().lower()
+        if not domain or any(char.isspace() for char in domain):
+            return json.dumps({"error": f"invalid domain: {domain}", "results": []})
+        clean_domains.append(domain)
+    search_queries = [query.strip()]
+    if clean_domains:
+        # DuckDuckGo's HTML endpoint is unreliable for `site:a OR site:b`, so
+        # search each selected domain and merge the results instead.
+        search_queries = [f"{query.strip()} site:{domain}" for domain in clean_domains]
+
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
     }
 
     results = []
-    try:
-        url = "https://html.duckduckgo.com/html/"
-        resp = requests.post(url, data={"q": query, "df": "w"}, headers=headers, timeout=10)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
+    seen_urls = set()
+    errors = []
+    for search_query in search_queries:
+        try:
+            url = "https://html.duckduckgo.com/html/"
+            payload = {"q": search_query}
+            if recency_map[recency]:
+                payload["df"] = recency_map[recency]
+            resp = requests.post(url, data=payload, headers=headers, timeout=10)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "html.parser")
+            page_text = soup.get_text(" ", strip=True).lower()
+            if "complete the following challenge" in page_text or "bots use duckduckgo" in page_text:
+                errors.append("DuckDuckGo returned a human-verification challenge")
+                continue
 
-        for item in soup.select(".result, .web-result")[:num_results]:
-            title_tag = item.select_one(".result__a, a.result__url")
-            snippet_tag = item.select_one(".result__snippet")
-            if title_tag:
+            for item in soup.select(".result, .web-result")[:num_results]:
+                title_tag = item.select_one(".result__a, a.result__url")
+                snippet_tag = item.select_one(".result__snippet")
+                if not title_tag:
+                    continue
+                result_url = _unwrap_ddg_url(title_tag.get("href", ""))
+                if not result_url or result_url in seen_urls:
+                    continue
+                seen_urls.add(result_url)
                 results.append({
                     "title": title_tag.get_text(strip=True),
-                    "url": _unwrap_ddg_url(title_tag.get("href", "")),
+                    "url": result_url,
                     "snippet": snippet_tag.get_text(strip=True) if snippet_tag else "",
                 })
-    except Exception as e:
-        return json.dumps({"error": f"Web search failed: {str(e)}", "results": []})
+        except Exception as error:
+            errors.append(str(error))
 
-    return json.dumps({"query": query, "results": results}, indent=2)
+    if not results and errors:
+        return json.dumps({"error": f"Web search failed: {errors[0]}", "results": []})
+
+    return json.dumps({
+        "query": query,
+        "search_provider": "DuckDuckGo",
+        "source_title": f"DuckDuckGo results for {query}",
+        "search_urls": [f"https://duckduckgo.com/?q={quote_plus(item)}" for item in search_queries],
+        "recency": recency,
+        "domains": clean_domains,
+        "results": results[:num_results],
+    }, indent=2)
+
+
+def tool_web_search_news(query: str, num_results: int = 5) -> str:
+    """Search the public web for results from the past week."""
+    return tool_web_search(query=query, num_results=num_results, recency="week")
+
+
+def _validate_public_url(value: str) -> str:
+    """Reject non-public and local destinations before fetching model-provided URLs."""
+    if not isinstance(value, str):
+        raise ValueError("url must be a string")
+    parsed = urlparse(value.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("url must use http or https and include a hostname")
+    if parsed.username or parsed.password:
+        raise ValueError("URLs containing embedded credentials are not allowed")
+    hostname = parsed.hostname.lower()
+    if hostname == "localhost" or hostname.endswith(".local"):
+        raise ValueError("local URLs are not allowed")
+    try:
+        addresses = [ipaddress.ip_address(hostname)]
+    except ValueError:
+        try:
+            addresses = {
+                ipaddress.ip_address(item[4][0])
+                for item in socket.getaddrinfo(hostname, parsed.port or 443, type=socket.SOCK_STREAM)
+            }
+        except (OSError, ValueError) as error:
+            raise ValueError(f"could not resolve public hostname: {error}") from error
+    if any(not address.is_global for address in addresses):
+        raise ValueError("private, loopback, link-local, and reserved destinations are not allowed")
+    return parsed.geturl()
+
+
+def tool_fetch_web_page(url: str, max_chars: int = 10000) -> str:
+    """Fetch visible text from a public page with redirect and size safeguards."""
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+    except ImportError as error:
+        return json.dumps({"error": f"Web page fetch unavailable: {error}", "requested_url": url})
+    if isinstance(max_chars, bool) or not isinstance(max_chars, int) or not 1000 <= max_chars <= 20000:
+        return json.dumps({"error": "max_chars must be an integer from 1000 to 20000", "requested_url": url})
+
+    current_url = url
+    response = None
+    try:
+        for _redirect in range(5):
+            current_url = _validate_public_url(current_url)
+            response = requests.get(
+                current_url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                    "Range": "bytes=0-1499999",
+                },
+                timeout=12,
+                allow_redirects=False,
+                stream=True,
+            )
+            if response.status_code in {301, 302, 303, 307, 308}:
+                location = response.headers.get("Location")
+                response.close()
+                if not location:
+                    raise ValueError("redirect response did not include a destination")
+                current_url = urljoin(current_url, location)
+                continue
+            response.raise_for_status()
+            break
+        else:
+            raise ValueError("too many redirects")
+
+        content_type = response.headers.get("Content-Type", "").lower()
+        if "text/html" not in content_type and "text/plain" not in content_type:
+            return json.dumps({
+                "error": f"unsupported page content type: {content_type or 'unknown'}",
+                "source_title": current_url,
+                "source_url": current_url,
+            })
+
+        chunks = []
+        total = 0
+        for chunk in response.iter_content(chunk_size=16384):
+            if not chunk:
+                continue
+            remaining = 1_500_000 - total
+            if remaining <= 0:
+                break
+            chunks.append(chunk[:remaining])
+            total += min(len(chunk), remaining)
+        encoding = response.encoding or "utf-8"
+        raw_text = b"".join(chunks).decode(encoding, errors="replace")
+        if "text/plain" in content_type:
+            title = urlparse(current_url).netloc
+            visible_text = raw_text
+            published_at = None
+        else:
+            soup = BeautifulSoup(raw_text, "html.parser")
+            for element in soup(["script", "style", "noscript", "svg"]):
+                element.decompose()
+            title = soup.title.get_text(" ", strip=True) if soup.title else urlparse(current_url).netloc
+            date_tag = (
+                soup.find("meta", attrs={"property": "article:published_time"})
+                or soup.find("meta", attrs={"name": "date"})
+                or soup.find("meta", attrs={"name": "pubdate"})
+            )
+            published_at = date_tag.get("content") if date_tag else None
+            visible_text = soup.get_text(" ", strip=True)
+        return json.dumps({
+            "source_title": title[:200],
+            "source_url": current_url,
+            "published_at": published_at,
+            "fetched_at_utc": datetime.now(timezone.utc).isoformat(),
+            "content_type": content_type.split(";", 1)[0],
+            "truncated": len(visible_text) > max_chars,
+            "text": visible_text[:max_chars],
+        }, indent=2)
+    except Exception as error:
+        return json.dumps({"error": f"Web page fetch failed: {error}", "requested_url": url})
+    finally:
+        if response is not None:
+            response.close()
 
 
 def tool_screen_stocks(
@@ -821,6 +1064,8 @@ def tool_compare_stocks(tickers: list[str]) -> str:
             "debt_to_equity": data["debt_to_equity"],
             "beta": data["beta"],
             "return_1y": _pct(data.get("return_1y")),
+            "source_title": data.get("source_title"),
+            "source_url": data.get("source_url"),
             "source_market_timestamp": data.get("source_market_timestamp"),
             "fundamentals_most_recent_quarter": data.get("fundamentals_most_recent_quarter"),
             "fetched_at_utc": data.get("fetched_at_utc"),
@@ -1055,10 +1300,22 @@ def tool_generate_report(tickers: list[str], title: str = None, strategy: str = 
     doc.build(story)
 
     html_report = _build_html_report(stocks, news, report_title, strategy)
+    report_sources = [
+        {"title": stock.get("source_title"), "url": stock.get("source_url")}
+        for stock in stocks
+        if stock.get("source_url")
+    ]
+    for headlines in news.values():
+        report_sources.extend(
+            {"title": headline.get("title"), "url": headline.get("url")}
+            for headline in headlines
+            if headline.get("url")
+        )
     return json.dumps({
         "report_path": output_path,
         "stocks_included": len(stocks),
         "html_report": html_report,
+        "sources": report_sources,
     })
 
 
@@ -1069,6 +1326,8 @@ TOOL_DISPATCH = {
     "get_stock_news": lambda args: tool_get_stock_news(**args),
     "get_price_history": lambda args: tool_get_price_history(**args),
     "web_search_news": lambda args: tool_web_search_news(**args),
+    "web_search": lambda args: tool_web_search(**args),
+    "fetch_web_page": lambda args: tool_fetch_web_page(**args),
     "screen_stocks": lambda args: tool_screen_stocks(**args),
     "compare_stocks": lambda args: tool_compare_stocks(**args),
     "generate_report": lambda args: tool_generate_report(**args),

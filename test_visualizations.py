@@ -147,7 +147,8 @@ class VisualizationTests(unittest.TestCase):
             events = "".join(server.stream_agent("Make a chart"))
         self.assertIn('"type": "visualization"', events)
         self.assertIn('<svg xmlns=\\"http://www.w3.org/2000/svg\\"', events)
-        self.assertIn('"type": "answer", "content": "Done"', events)
+        self.assertIn("Done\\n\\n## Sources", events)
+        self.assertIn("No external sources were used", events)
 
 
 if __name__ == "__main__":

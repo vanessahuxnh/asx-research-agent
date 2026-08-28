@@ -21,6 +21,7 @@ This file defines **what tools Claude can use** (schemas) and **what happens whe
          | looks up in              |  | name: get_stock_news  ||
          | TOOL_DISPATCH            |  | name: get_price_      ||
          |                          |  | history               ||
+         |                          |  | name: web_search      ||
          |                          |  | name: screen_stocks   ||
          |                          |  | name: compare_stocks  ||
          v                          |  | name: generate_report ||
@@ -89,6 +90,18 @@ Python functions that execute when Claude calls a tool. Connected via `TOOL_DISP
 - **Input**: Up to five tickers, period, interval, adjustment/pre-market options, and a bounded point count
 - **How it works**: Retrieves OHLCV bars through `yfinance`, evenly downsamples large results while retaining the latest bar, and attaches source/retrieval timestamps and exchange metadata
 - **Returns**: Timestamped OHLCV points plus explicit freshness and non-real-time notices
+
+### `web_search`
+- **Purpose**: Search public company sites, ASX disclosures, Google Sites pages, news, and general web sources
+- **Input**: Query, result count, recency, and up to five optional domain filters
+- **How it works**: Queries DuckDuckGo's HTML search endpoint and preserves each result's title, snippet, and destination URL
+- **Returns**: Clickable source results that are automatically included in the final answer's Sources section
+
+### `fetch_web_page`
+- **Purpose**: Read the actual visible text of a known public page after search or from a user-provided URL
+- **Input**: Public HTTP(S) URL and an optional text-length limit
+- **Safety**: Rejects local/private destinations, validates each redirect, limits downloads, and excludes scripts/styles
+- **Returns**: Page title, final source URL, publication/retrieval timestamps, and bounded visible text
 
 ### `screen_stocks` (line 242)
 - **Purpose**: Filter the ASX universe by criteria

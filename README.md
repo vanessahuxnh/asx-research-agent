@@ -11,8 +11,10 @@ V2 adds native visualisation tools to the research workflow:
 - Bar, line, area, scatter, and pie charts generated from computed market data
 - Native numeric line/scatter plots, histograms, and statistical box plots
 - Timestamped historical and recent intraday OHLCV data for price trends and return analysis
+- Public-web and recent-news search with recency/domain filters, preserved result URLs, and safe page-text extraction
 - Flowcharts, hierarchies, and relationship diagrams
 - Saved SVG artifacts with inline rendering in the web UI
+- Automatic clickable source lists on every answer, plus inline citation guidance
 - Validated numeric inputs and safely escaped labels
 
 [View the `v2` tagged version](https://github.com/vanessahuxnh/asx-research-agent/tree/v2).
@@ -59,6 +61,8 @@ User Query (natural language)
 │   ├── get_stock_data        │  ← yfinance fundamentals
 │   ├── get_price_history     │  ← timestamped OHLCV bars
 │   ├── get_stock_news        │  ← recent headlines
+│   ├── web_search            │  ← public sites and disclosures
+│   ├── fetch_web_page        │  ← visible text from public URLs
 │   ├── screen_stocks         │  ← filter by criteria
 │   ├── compare_stocks        │  ← side-by-side comparison
 │   ├── generate_report       │  ← PDF report generation
@@ -170,6 +174,7 @@ python agent.py --demo "Find stocks with dividend yield above 5%"
 |------|---------|
 | `agent.py` | **Main entry point** — agentic loop with Claude |
 | `tools.py` | Tool schemas (what Claude sees) + implementations |
+| `source_utils.py` | Source URL collection, validation, de-duplication, and Markdown output |
 | `visualizations.py` | Safe, dependency-free SVG chart, plot, and diagram generation |
 | `report.py` | PDF report generation via reportlab |
 | `sample_data.py` | Demo data for offline testing |
@@ -190,3 +195,9 @@ python agent.py --demo "Find stocks with dividend yield above 5%"
 Market prices and history come from Yahoo Finance through `yfinance`. Results include the retrieval time, latest bar timestamp, source market timestamp and its age when available, and exchange timezone. Fundamental results separately expose the most recent reported quarter and fiscal year end. The agent is instructed to quote the appropriate timestamps whenever recency matters.
 
 Yahoo/yfinance data may be delayed or incomplete and is not a licensed guaranteed real-time feed. [The official history documentation](https://ranaroussi.github.io/yfinance/reference/yfinance.functions.html) limits intraday history to the latest 60 days; use a daily or wider interval for longer periods. The project also states that Yahoo Finance data is intended for personal research and educational use in its [data-source notice](https://github.com/ranaroussi/yfinance/blob/main/README.md).
+
+## Sources and Web Research
+
+Prices, fundamentals, and historical bars come from Yahoo Finance through `yfinance`. The agent can also search current public websites and recent news through DuckDuckGo, optionally restricting results to authoritative domains such as `asx.com.au` or a company's investor-relations site. It can safely extract visible text from known public URLs, including accessible public Google Sites pages. Search discovery is best-effort and reports an explicit error if the provider presents a human-verification challenge.
+
+Every final answer includes a clickable Sources section assembled from the URLs returned by its tools. The model is also instructed to cite those links beside factual claims and never fabricate a URL. Direct Google Custom Search is not built in because [Google closed its JSON API to new customers in 2026](https://developers.google.com/custom-search/v1/overview); existing access requires credentials plus a configured search-engine ID and must transition by January 1, 2027.

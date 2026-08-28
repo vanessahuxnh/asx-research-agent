@@ -26,6 +26,7 @@ import anthropic
 from dotenv import load_dotenv
 
 from config import MAX_TOKENS, MAX_TURNS, MODEL, SYSTEM_PROMPT
+from source_utils import append_sources, collect_sources
 from tools import TOOL_SCHEMAS, execute_tool
 
 load_dotenv()
@@ -45,6 +46,7 @@ def run_agent(user_message: str, demo: bool = False) -> str:
     client = anthropic.Anthropic()
 
     messages = [{"role": "user", "content": user_message}]
+    collected_sources = []
 
     print(f"\n{'─' * 60}")
     print(f"🤖 Agent processing: \"{user_message}\"")
@@ -73,21 +75,28 @@ def run_agent(user_message: str, demo: bool = False) -> str:
             elif block.type == "tool_use":
                 tool_uses.append(block)
 
-        # If there are text parts, print them
-        if text_parts:
-            for t in text_parts:
-                print(t)
-
         if response.stop_reason == "refusal":
-            return "⚠️ Claude declined to answer this request."
+            final_answer = append_sources(
+                "⚠️ Claude declined to answer this request.", collected_sources
+            )
+            print(final_answer)
+            return final_answer
 
         if response.stop_reason == "max_tokens":
             print("\n⚠️ Response hit the token limit and may be incomplete.")
-            return "\n".join(text_parts)
+            final_answer = append_sources("\n".join(text_parts), collected_sources)
+            print(final_answer)
+            return final_answer
 
         # If no tool calls, we're done
         if not tool_uses:
-            return "\n".join(text_parts)
+            final_answer = append_sources("\n".join(text_parts), collected_sources)
+            print(final_answer)
+            return final_answer
+
+        # Text accompanying tool calls is intermediate commentary.
+        for text_part in text_parts:
+            print(text_part)
 
         # Execute tool calls and build the next message
         messages.append({"role": "assistant", "content": assistant_content})
@@ -98,6 +107,11 @@ def run_agent(user_message: str, demo: bool = False) -> str:
 
             result = execute_tool(tool_use.name, tool_use.input)
 
+            try:
+                collected_sources.extend(collect_sources(json.loads(result)))
+            except (json.JSONDecodeError, TypeError):
+                pass
+
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": tool_use.id,
@@ -106,7 +120,12 @@ def run_agent(user_message: str, demo: bool = False) -> str:
 
         messages.append({"role": "user", "content": tool_results})
 
-    return "⚠️ Agent reached maximum turns without completing. Try a more specific query."
+    final_answer = append_sources(
+        "⚠️ Agent reached maximum turns without completing. Try a more specific query.",
+        collected_sources,
+    )
+    print(final_answer)
+    return final_answer
 
 
 def _patch_demo_tools():
@@ -209,8 +228,7 @@ def _patch_demo_tools():
             "html_report": html,
         })
 
-    # Patch the dispatch table. web_search_news is left on the live
-    # implementation — there is no sample data for it.
+    # Patch only data tools with offline samples. Public web tools stay live.
     tools.TOOL_DISPATCH = {
         **tools.TOOL_DISPATCH,
         "get_stock_data": lambda args: demo_get_stock_data(**args),
