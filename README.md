@@ -1,6 +1,19 @@
 # ASX Investment Research & Trading Agent
 
-An agentic AI system powered by **Claude** that researches, analyses, and reports on ASX equities using natural language.
+[![Version: v2](https://img.shields.io/badge/version-v2-6ee7b7.svg)](https://github.com/vanessahuxnh/asx-research-agent/tree/v2)
+
+An agentic AI system powered by **Claude** that researches, analyses, visualises, and reports on ASX equities using natural language.
+
+## Version 2 (v2)
+
+V2 adds native visualisation tools to the research workflow:
+
+- Bar, line, area, scatter, and pie charts generated from computed market data
+- Flowcharts, hierarchies, and relationship diagrams
+- Saved SVG artifacts with inline rendering in the web UI
+- Validated numeric inputs and safely escaped labels
+
+[View the `v2` tagged version](https://github.com/vanessahuxnh/asx-research-agent/tree/v2).
 
 ![The agent answering a research question](docs/images/agent-query.png)
 
@@ -12,7 +25,7 @@ Note `NAB — data missing`: when a field isn't available from the data source t
 
 ## How It Works
 
-You ask questions in plain English. Claude reasons about what data it needs, calls the right tools, and synthesises findings into clear analysis or a PDF report.
+You ask questions in plain English. Claude reasons about what data it needs, calls the right tools, and synthesises findings into clear analysis, inline visualisations, or a PDF report.
 
 ```
 You: "Find undervalued mining stocks with strong dividends and compare them"
