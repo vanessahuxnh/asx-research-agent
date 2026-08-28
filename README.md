@@ -14,6 +14,7 @@ V2 adds native visualisation tools to the research workflow:
 - Public-web and recent-news search with recency/domain filters, preserved result URLs, and safe page-text extraction
 - Flowcharts, hierarchies, and relationship diagrams
 - Saved SVG artifacts with inline rendering and one-click local download in the web UI
+- A ChatGPT-style copy control beneath every completed agent answer
 - Automatic clickable source lists on every answer, plus inline citation guidance
 - Validated numeric inputs and safely escaped labels
 

@@ -151,6 +151,13 @@ body{
 .analysis a{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
 .analysis a:hover{filter:brightness(1.15)}
 .analysis .disclaimer{font-size:12px;color:var(--text-muted);font-style:italic;margin-top:4px}
+.answer-actions{display:flex;justify-content:flex-end;margin-top:4px}
+.copy-answer{
+  display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:0;border-radius:5px;
+  background:transparent;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer;
+}
+.copy-answer:hover{background:var(--bg-elevated);color:var(--text-primary)}
+.copy-answer svg{width:15px;height:15px}
 
 .stock-table{
   margin:16px 0 4px;border-radius:var(--radius);
@@ -422,6 +429,46 @@ function downloadVisualization(svgContent, title){
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+async function copyAnswer(button, text){
+  let copied = false;
+  try{
+    await navigator.clipboard.writeText(text);
+    copied = true;
+  } catch(_error){
+    const copyArea = document.createElement('textarea');
+    copyArea.value = text;
+    copyArea.style.position = 'fixed';
+    copyArea.style.opacity = '0';
+    document.body.appendChild(copyArea);
+    copyArea.select();
+    copied = document.execCommand('copy');
+    copyArea.remove();
+  }
+
+  if(!copied) return;
+  const original = button.innerHTML;
+  button.innerHTML = '<span>Copied</span>';
+  button.setAttribute('aria-label', 'Answer copied');
+  window.setTimeout(() => {
+    button.innerHTML = original;
+    button.setAttribute('aria-label', 'Copy answer');
+  }, 1600);
+}
+
+function addCopyAnswerButton(container, text){
+  const actions = document.createElement('div');
+  actions.className = 'answer-actions';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'copy-answer';
+  button.setAttribute('aria-label', 'Copy answer');
+  button.title = 'Copy answer';
+  button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"/></svg>';
+  button.addEventListener('click', () => copyAnswer(button, text));
+  actions.appendChild(button);
+  container.appendChild(actions);
+}
+
 const chat = document.getElementById('chat');
 
 function scrollDown(){
@@ -600,6 +647,7 @@ async function send(override){
           tableWrap.innerHTML = buildTableFromData(lastTableData);
           if(tableWrap.firstChild) msgDiv.appendChild(tableWrap.firstChild);
         }
+        addCopyAnswerButton(msgDiv, evt.content);
         scrollDown();
       }
       else if(evt.type === 'error'){

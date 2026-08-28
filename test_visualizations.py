@@ -157,6 +157,13 @@ class VisualizationTests(unittest.TestCase):
         self.assertIn("image/svg+xml;charset=utf-8", ui)
         self.assertIn("URL.createObjectURL", ui)
 
+    def test_web_ui_offers_copy_action_for_answers(self):
+        with open("asx_agent_ui.html", encoding="utf-8") as source:
+            ui = source.read()
+        self.assertIn("Copy answer", ui)
+        self.assertIn("navigator.clipboard.writeText", ui)
+        self.assertIn("addCopyAnswerButton(msgDiv, evt.content)", ui)
+
 
 if __name__ == "__main__":
     unittest.main()
