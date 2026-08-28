@@ -163,6 +163,8 @@ class VisualizationTests(unittest.TestCase):
         self.assertIn("Copy answer", ui)
         self.assertIn("navigator.clipboard.writeText", ui)
         self.assertIn("addCopyAnswerButton(msgDiv, evt.content)", ui)
+        self.assertIn("answerTextForClipboard", ui)
+        self.assertIn(".replace(/^#{1,6}\\s+/gm, '')", ui)
 
 
 if __name__ == "__main__":

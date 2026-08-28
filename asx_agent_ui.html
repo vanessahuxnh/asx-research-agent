@@ -429,7 +429,18 @@ function downloadVisualization(svgContent, title){
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-async function copyAnswer(button, text){
+function answerTextForClipboard(markdown){
+  return String(markdown || '')
+    // Preserve both the label and destination for cited sources, while making
+    // the remaining Markdown suitable for ordinary notes apps.
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '$1 ($2)')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1');
+}
+
+async function copyAnswer(button, markdown){
+  const text = answerTextForClipboard(markdown);
   let copied = false;
   try{
     await navigator.clipboard.writeText(text);
